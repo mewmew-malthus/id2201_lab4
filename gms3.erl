@@ -2,7 +2,7 @@
 -export([start/1, start/2]).
 
 bcast(Id, Msg, Slaves) ->
-    io:format("Leader ~w Broadcasting: ~w ~n", [Id, Msg]),
+    % io:format("Leader ~w Broadcasting: ~w ~n", [Id, Msg]),
     lists:foreach(fun(Slave) -> Slave ! Msg, crash(Id) end, Slaves).
 
 crash(Id) ->

@@ -1,19 +1,20 @@
 -module(gui).
 -define(width, 200).
 -define(height, 200).
--export([start/2]).
+-export([start/3]).
 -include_lib("wx/include/wx.hrl").
 
-start(Title, Master) ->
-    spawn_link(fun() -> init(Title, Master) end).
+start(Title, Master, Position) ->
+    spawn_link(fun() -> init(Title, Master, Position) end).
 
-init(Title, Master) ->
-    Window = make_window(Title),
+init(Title, Master, Position) ->
+    Window = make_window(Title, Position),
     loop(Window, Master).
 
-make_window(Title) ->
+make_window(Title, Position) ->
     Server = wx:new(),  %Server will be the parent for the Frame
-    Frame = wxFrame:new(Server, -1, Title, [{size,{?width, ?height}}]),
+    io:format("Position: ~w~n", [Position]),
+    Frame = wxFrame:new(Server, -1, Title, [{size,{?width, ?height}}, {pos, Position}]),
     wxFrame:setBackgroundColour(Frame, ?wxBLACK),
     Window = wxWindow:new(Frame, ?wxID_ANY),
     wxFrame:show(Frame),

@@ -59,9 +59,16 @@ state(Id, Ref) ->
 % know we know everything to continue. 
 		
 init_cont(Id, Rnd, Cast, Color, Sleep) ->
+	X_offset = 200,
+	Y_offset = 200,
+	X_space = 100,
+	Y_space = 100,
+	X_coord = (Id - 1) rem 3,
+	Y_coord = (Id - 1) div 3,
+	Position = {(X_space + (X_space+X_offset) * X_coord), Y_space + (Y_space + Y_offset) * Y_coord}, 
     random:seed(Rnd, Rnd, Rnd),
     Title = "Worker: " ++ integer_to_list(Id),
-    Gui = gui:start(Title, self()),
+    Gui = gui:start(Title, self(), Position),
     Gui ! {color, Color}, 
     worker(Id, Cast, Color, Gui, Sleep),
     Cast ! stop,
@@ -77,7 +84,7 @@ worker(Id, Cast, Color, Gui, Sleep) ->
 	{change, N} ->
 	    % io:format("worker ~w change ~w~n", [Id, N]),
 	    Color2 = change_color(N, Color),
-	    io:format("worker ~w change ~w to ~w~n", [Id, N, Color2]),
+	    % io:format("worker ~w change ~w to ~w~n", [Id, N, Color2]),
 	    Gui ! {color, Color2},
 	    worker(Id, Cast, Color2, Gui, Sleep);
 
