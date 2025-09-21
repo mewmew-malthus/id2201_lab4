@@ -1,20 +1,39 @@
--module(gms3).
+-module(gms4).
 -export([start/1, start/2]).
 
 bcast(Id, Msg, Slaves) ->
     % io:format("Leader ~w Broadcasting: ~w ~n", [Id, Msg]),
     lists:foreach(fun(Slave) -> 
-        Slave ! Msg, 
-        crash(Id) 
+        case miss_msg(100, Msg) of
+            Msg ->
+                Slave ! Msg, 
+                crash(Id);
+            miss ->
+                ok 
+        end
+    end, Slaves).
+
+bcast_safe(Id, Msg, Slaves) ->
+    % io:format("Leader ~w Broadcasting: ~w ~n", [Id, Msg]),
+    lists:foreach(fun(Slave) -> 
+            Slave ! Msg 
     end, Slaves).
 
 crash(Id) ->
-    case random:uniform(42) of
+    case rand:uniform(42) of
         42 ->
             io:format("leader ~w: crash~n", [Id]),
             exit(no_luck);
         _ ->
             ok
+    end.
+
+miss_msg(Chance, Message) ->
+    case rand:uniform(Chance) of
+        Chance ->
+            miss;
+        _ -> 
+            Message
     end.
 
 leader(Id, Master, Slaves, Group, N) ->
@@ -33,12 +52,22 @@ leader(Id, Master, Slaves, Group, N) ->
             ok
     end.
 
-miss_msg(Chance, Message) ->
-    case random:uniform(Chance) of
-        Chance ->
-            miss;
-        _ -> 
-            Message
+leader_safe(Id, Master, Slaves, Group, N) ->
+    receive
+        {mcast, Msg} ->
+            bcast_safe(Id, {msg, N, Msg}, Slaves),
+            Master ! Msg,
+            leader_safe(Id, Master, Slaves, Group, N+1);
+        {join, Wrk, Peer} ->
+            Slaves2 = lists:append(Slaves, [Peer]),
+            Group2 = lists:append(Group, [Wrk]),
+            bcast_safe(Id, {view, N, [self()|Slaves2], Group2}, Slaves2),
+            Master ! {view, Group2},
+            leader_safe(Id, Master, Slaves2, Group2, N+1);
+        unsafe ->
+            leader(Id, Master, Slaves, Group, N);
+        stop ->
+            ok
     end.
 
 slave(Id, Master, Leader, Slaves, Group, N, Last) ->
@@ -53,10 +82,12 @@ slave(Id, Master, Leader, Slaves, Group, N, Last) ->
             slave(Id, Master, Leader, Slaves, Group, N, Last);
         {msg, K, _Msg} when K > (N + 1) ->
             %missed message
-            io:format("Node ~w Missed Message~n", [Id]);
+            io:format("Node ~w Missed Message~n", [Id]),
+            slave(Id, Master, Leader, Slaves, Group, N, Last);
         {view, K, _nodes, _group} when K > (N + 1) ->
             % missed message
-            io:format("Node ~w missed message~n", [Id]);
+            io:format("Node ~w missed message~n", [Id]),
+            slave(Id, Master, Leader, Slaves, Group, N, Last);
         {msg, K, Msg} when K == (N + 1) ->
             Master ! Msg,
             slave(Id, Master, Leader, Slaves, Group, K, {msg, K, Msg});
@@ -92,23 +123,23 @@ election(Id, Master, Slaves, [_|Group], N, Last) ->
 % master start and init
 start(Id) ->
     Self = self(),
-    Rnd = random:uniform(1000),
+    Rnd = rand:uniform(1000),
     {ok, spawn_link(fun()-> init(Id, Self, Rnd) end)}.
 
 init(Id, Master, Rnd) ->
-    io:format("random val is ~w~n", [Rnd]),
-    random:seed(Rnd, Rnd, Rnd),
-    leader(Id, Master, [], [Master], 0).
+    %io:format("rand val is ~w~n", [Rnd]),
+    rand:seed(default, {Rnd, Rnd, Rnd}),
+    leader_safe(Id, Master, [], [Master], 0).
 
 % slave start and init
 start(Id, Grp) ->
     Self = self(),
-    Rnd = random:uniform(1000),
+    Rnd = rand:uniform(1000),
     {ok, spawn_link(fun()-> init(Id, Grp, Self, Rnd) end)}.
 
 init(Id, Grp, Master, Rnd) ->
-    io:format("random val is ~w~n", [Rnd]),
-    random:seed(Rnd, Rnd, Rnd),
+    %io:format("rand val is ~w~n", [Rnd]),
+    rand:seed(default, {Rnd, Rnd, Rnd}),
     Self = self(),
     Grp ! {join, Master, Self},
     receive

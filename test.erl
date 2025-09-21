@@ -9,7 +9,7 @@
 % W1 = test:first(1, gms1, 1000)
 
 first(N, Module, Sleep) ->
-   worker:start(N, Module, random:uniform(256), Sleep).
+   worker:start(N, Module, rand:uniform(256), Sleep).
 
 % Used to create additional workers, try:
 %
@@ -17,7 +17,7 @@ first(N, Module, Sleep) ->
 %  test:add(3, gms1, W1, 1000) and ...
 
 add(N, Module, Wrk, Sleep) ->
-   worker:start(N, Module, random:uniform(256), Wrk, Sleep).
+   worker:start(N, Module, rand:uniform(256), Wrk, Sleep).
 
 %% To create a number of workers in one go, 
 
@@ -28,7 +28,7 @@ more(N, Module, Sleep) when N > 1 ->
     Wrk.
 
 add_monitor(N, Module, Wrk, Sleep) ->
-    Node = worker:start(N, Module, random:uniform(256), Wrk, Sleep),
+    Node = worker:start(N, Module, rand:uniform(256), Wrk, Sleep),
     erlang:monitor(process, Node),
     Node.
 		      
@@ -41,8 +41,8 @@ continuous(N, Module, Sleep) when N > 1 ->
         Node = add_monitor(Id, Module, Wrk, Sleep),
         maps:put(Node, Id, Accin)
      end, Refs0, Ns),
-    continue_loop(Refs, Module, Sleep).
-
+     Wrk ! {send, unsafe},
+    spawn(continue_loop(Refs, Module, Sleep)).
 
 continue_loop(Refs, Module, Sleep) ->
     receive
@@ -53,7 +53,9 @@ continue_loop(Refs, Module, Sleep) ->
             {Nl, _, _} = maps:next(maps:iterator(Refs2)),
             Node = add_monitor(Id, Module, Nl, Sleep),
             Refs3 = maps:put(Node, Id, Refs2),
-            continue_loop(Refs3, Module, Sleep)
+            continue_loop(Refs3, Module, Sleep);
+        stop ->
+            lists:foreach(fun(Node) -> Node ! {send, stop} end, Refs)
     end.
 
 % These are messages that we can send to one of the workers. It will
