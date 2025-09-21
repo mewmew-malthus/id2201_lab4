@@ -13,7 +13,6 @@ init(Title, Master, Position) ->
 
 make_window(Title, Position) ->
     Server = wx:new(),  %Server will be the parent for the Frame
-    io:format("Position: ~w~n", [Position]),
     Frame = wxFrame:new(Server, -1, Title, [{size,{?width, ?height}}, {pos, Position}]),
     wxFrame:setBackgroundColour(Frame, ?wxBLACK),
     Window = wxWindow:new(Frame, ?wxID_ANY),

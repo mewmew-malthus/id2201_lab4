@@ -37,6 +37,7 @@ join(Id, Cast) ->
 	{view, _} ->
 	    Ref = make_ref(),
 	    Cast ! {mcast, {state_request, Ref}},
+		io:format("Worker ~w :: ~w awaiting state~n", [Id, Ref]),
 	    state(Id, Ref);
 	{error, Reason} ->
 	    {error, Reason}
@@ -51,7 +52,8 @@ state(Id, Ref) ->
 		{state, Ref, Color} ->
 		    {ok, Color}
 	    end;
-	_Ignore ->
+	Ignore ->
+		io:format("Worker ~w ignoring message :: ~w~n", [Id, Ignore]),
 	    state(Id, Ref)
     end.
 
@@ -122,9 +124,21 @@ worker(Id, Cast, Color, Gui, Sleep) ->
 	{send, Msg} ->
 	    Cast !  {mcast, Msg},	    
 	    worker(Id, Cast, Color, Gui, Sleep);	    
+	% viv added
+	unsafe ->
+		Cast ! unsafe,
+		worker(Id, Cast, Color, Gui, Sleep);
+	% viv added
+	{error, Error} ->
+		io:format("Error in Worker ~w:~n~w~n", [Id, Error]);
+
+	% viv added, idempotent
+	{state, _Ref, Sync_color} ->
+		Gui ! {color, Sync_color},
+		worker(Id, Cast, Color, Gui, Sleep);
 
 	Error ->
-    	    io:format("strange message: ~w~n", [Error]),
+    	    io:format("worker strange message: ~w~n", [Error]),
 	    worker(Id, Cast, Color, Gui, Sleep)
 
     after Wait ->
