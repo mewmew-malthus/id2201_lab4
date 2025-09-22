@@ -27,8 +27,12 @@ start(Id, Module, Rnd, Peer, Sleep) ->
 
 init(Id, Module, Rnd, Peer, Sleep) ->
     {ok, Cast} = apply(Module, start, [Id, Peer]),
-    {ok, Color} = join(Id, Cast),
-    init_cont(Id, Rnd, Cast, Color, Sleep).
+    case join(Id, Cast) of 
+		{ok, Color} ->
+    		init_cont(Id, Rnd, Cast, Color, Sleep);
+		{error, _} ->
+			error
+	end.
 
 % Wait for the first view to be delivered
 
