@@ -4,7 +4,7 @@
 bcast(Id, Msg, Slaves) ->
     % io:format("Leader ~w Broadcasting: ~w ~n", [Id, Msg]),
     lists:foreach(fun(Slave) -> 
-        case miss_msg(50, Msg) of
+        case miss_msg(30, Msg) of
             Msg ->
                 Slave ! Msg, 
                 crash(Id);
@@ -21,7 +21,7 @@ bcast_safe(Msg, Slaves) ->
     end, Slaves).
 
 crash(Id) ->
-    case rand:uniform(500) of
+    case rand:uniform(5) of
         42 ->
             io:format("Node ~w :: ~w crash~n", [Id, self()]),
             exit(no_luck);
@@ -111,9 +111,13 @@ slave(Id, Master, Leader, Slaves, Group, N, Last) ->
             slave(Id, Master, Leader, Slaves2, Group2, N, Last);
         {msg, K, _Msg} when K > (N + 1) ->
             %missed message
+            io:format("Node ~w requests resync!~n", [Id]),
+            bcast(Id, resync, Slaves),
             slave(Id, Master, Leader, Slaves, Group, N, Last);
         {view, K, _nodes, _group} when K > (N + 1) ->
             % missed message
+            io:format("Node ~w requests resync!~n", [Id]),
+            bcast(Id, resync, Slaves),
             slave(Id, Master, Leader, Slaves, Group, N, Last);
         {msg, K, Msg} when K == (N + 1) ->
             Master ! Msg,
@@ -130,14 +134,9 @@ slave(Id, Master, Leader, Slaves, Group, N, Last) ->
             slave(Id, Master, Leader, Slaves, Group, N, Last);
         {view, K, _, _} when K =< N ->
             slave(Id, Master, Leader, Slaves, Group, N, Last);
-        {resync, K, Color, [Leader|Nodes], Group2} ->
-            case K > N of
-                true ->
-                    Master ! {color_sync, Color},
-                    slave(Id, Master, Leader, Nodes, Group2, K, Last);
-                false ->
-                    slave(Id, Master, Leader, Slaves, Group, N, Last)
-            end;
+        resync ->
+           lists:foreach(fun(Msg) -> bcast(Id, Msg, Slaves) end, Last), 
+           slave(Id, Master, Leader, Slaves, Group, N, Last);
         stop ->
             ok
         % Badmessage ->
