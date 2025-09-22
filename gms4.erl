@@ -4,12 +4,12 @@
 bcast(Id, Msg, Slaves) ->
     % io:format("Leader ~w Broadcasting: ~w ~n", [Id, Msg]),
     lists:foreach(fun(Slave) -> 
-        case miss_msg(10, Msg) of
+        case miss_msg(50, Msg) of
             Msg ->
                 Slave ! Msg, 
                 crash(Id);
             miss ->
-                io:format("Missed Message to ~w~n", [Slave]),
+                % io:format("Missed Message to ~w~n", [Slave]),
                 ok 
         end
     end, Slaves).
@@ -21,7 +21,7 @@ bcast_safe(Msg, Slaves) ->
     end, Slaves).
 
 crash(Id) ->
-    case rand:uniform(100) of
+    case rand:uniform(500) of
         42 ->
             io:format("Node ~w :: ~w crash~n", [Id, self()]),
             exit(no_luck);
@@ -68,6 +68,7 @@ leader_safe(Id, Master, Slaves, Group, N) ->
         {join, Wrk, Peer} ->
             case lists:member(Peer, Slaves) of 
                 false ->
+                    io:format("Leader ~w :: ~w Received Join Message ~n", [Id, self()]),
                     Slaves2 = lists:append(Slaves, [Peer]),
                     Group2 = lists:append(Group, [Wrk]),
                     bcast_safe({view, N, [self()|Slaves2], Group2}, Slaves2),
@@ -82,6 +83,14 @@ leader_safe(Id, Master, Slaves, Group, N) ->
             ok
     end.
 
+rotate_last(NewMsg, Last, Length) ->
+    Last2 = lists:append(Last, [NewMsg]),
+    case length(Last2) > Length of
+        false ->
+            Last2;
+        true ->
+            lists:sublist(Last2, 1, length(Last2) - 1)
+    end.
 
 slave(Id, Master, Leader, Slaves, Group, N, Last) ->
     receive
@@ -92,9 +101,14 @@ slave(Id, Master, Leader, Slaves, Group, N, Last) ->
             slave(Id, Master, Leader, Slaves, Group, N, Last);
         {join, Wrk, Peer} ->
             % Peer ! {view, N, [Leader | lists:append(Slaves, [Peer])], lists:append(Group, [Wrk])},
-            io:format("Node ~w Forwarding Join Message~n", [Id]),
+            % io:format("Node ~w Forwarding Join Message~n", [Id]),
             Leader ! {join, Wrk, Peer},
-            slave(Id, Master, Leader, Slaves, Group, N, Last);
+            % let's assume its safe to add the new Node to our list
+            Slaves2 = lists:uniq(lists:append(Slaves, [Peer])),
+            Group2 = lists:uniq(lists:append(Group, [Wrk])),
+            % will this solve the errors? - no, it can be wildly out of sync during crash wave
+            % Peer ! {view, N, [Leader | Slaves2], Group2},
+            slave(Id, Master, Leader, Slaves2, Group2, N, Last);
         {msg, K, _Msg} when K > (N + 1) ->
             %missed message
             slave(Id, Master, Leader, Slaves, Group, N, Last);
@@ -104,13 +118,13 @@ slave(Id, Master, Leader, Slaves, Group, N, Last) ->
         {msg, K, Msg} when K == (N + 1) ->
             Master ! Msg,
             % echo to group to avoid misses
-            spawn(fun() -> bcast_safe({msg, K, Msg}, Slaves) end),
-            slave(Id, Master, Leader, Slaves, Group, K, {msg, K, Msg});
+            spawn(fun() -> bcast(Id, {msg, K, Msg}, Slaves) end),
+            slave(Id, Master, Leader, Slaves, Group, K, rotate_last({msg, K, Msg}, Last, 3));
         {view, K, [Leader|Slaves2], Group2} when K == (N + 1) ->
             Master ! {view, Group2},
             % echo to group to avoid misses
-            spawn(fun() -> bcast_safe({view, K, [Leader|Slaves2], Group2}, Slaves2) end),
-            slave(Id, Master, Leader, Slaves2, Group2, K, {view, K, [Leader|Slaves2], Group2});
+            spawn(fun() -> bcast(Id, {view, K, [Leader|Slaves2], Group2}, Slaves2) end),
+            slave(Id, Master, Leader, Slaves2, Group2, K, rotate_last({view, K, [Leader|Slaves2], Group2}, Last, 3));
         {msg, K, _} when K =< N ->
             %io:format("Node ~w received old msg num: ~w~n", [Id, K]),
             slave(Id, Master, Leader, Slaves, Group, N, Last);
@@ -125,9 +139,9 @@ slave(Id, Master, Leader, Slaves, Group, N, Last) ->
                     slave(Id, Master, Leader, Slaves, Group, N, Last)
             end;
         stop ->
-            ok;
-        Badmessage ->
-            io:format("Bad message received ~w~n", [Badmessage])
+            ok
+        % Badmessage ->
+            % io:format("Bad message received ~w~n", [Badmessage])
     end.
 
 election(Id, Master, Slaves, [_|Group], N, Last) ->
@@ -169,11 +183,55 @@ init(Id, Grp, Master, Rnd) ->
     %Grp ! {join, Master, Self},
     receive
         {view, N, [Leader|Slaves], Group} ->
-        Master ! {view, Group},
-        erlang:monitor(process, Leader),
-        io:format("Worker ~w :: ~w starting with Leader :: ~w~n", [Id, self(), Leader]),
-        slave(Id, Master, Leader, Slaves, Group, N, {})
+            Master ! {view, Group},
+            erlang:monitor(process, Leader),
+            io:format("Node ~w :: ~w starting with Leader :: ~w :: ~w~n", [Id, self(), Leader, Slaves]),
+            init_loop(Id, Master, Leader, Slaves, Group, N, [], 0)
+            % slave(Id, Master, Leader, Slaves, Group, N, {})
     after 500 ->
         % ok
         Master ! {error, "no reply from leader"}
+    end.
+
+init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref) ->
+    receive
+        % leader dead
+        {'DOWN', _Ref, process, Leader, _Reason} ->
+            init_election(Id, Master, Slaves, Group, N, Last, Ref);
+        % screen should be initialized here
+        {msg, K, {state, Ref, Color}} ->
+            io:format("Node ~w got gui init~n", [Id]),
+            Master ! {state, Ref, Color},
+            slave(Id, Master, Leader, Slaves, Group, K, Last);
+        % we should receive our ref immediately from the worker
+        {mcast, {state_request, Ref2}} when Ref == 0 ->
+            io:format("Node ~w got new Ref~n", [Id]),
+            % Master ! {state_request, Ref2},
+            Leader ! {mcast, {state_request, Ref2}},
+            init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref2);
+        {msg, K, {state_request, Ref}} when K > N ->
+            io:format("Node ~w got state request echo~n", [Id]),
+            Master ! {state_request, Ref},
+            init_loop(Id, Master, Leader, Slaves, Group, K, Last, Ref);
+        {join, Wrk, Peer} ->
+            % io:format("Node ~w Forwarding Join Message~n", [Id]),
+            Leader ! {join, Wrk, Peer},
+            init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref);
+        {view, K, [Leader | Slaves2], Group2} when K > N ->
+            init_loop(Id, Master, Leader, Slaves2, Group2, K, Last, Ref);
+        {view, K, _, _} when K =< N ->
+            init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref)
+    end.
+
+init_election(Id, Master, Slaves, Group, N, Last, Ref) ->
+    io:format("Node ~w init election!!~n", [Id]),
+    Self = self(),
+    case Slaves of
+        [Self, Slaves] ->
+            %oh god i'm in charge now - no need to rebroadcast, no one else has initialized
+            leader(Id, Master, Slaves, Group, N);
+        [Leader|Rest] ->
+            % ask new leader for state
+            Leader ! {mcast, {state_request, Ref}},
+            init_loop(Id, Master, Leader, Rest, Group, N, Last, Ref)
     end.
