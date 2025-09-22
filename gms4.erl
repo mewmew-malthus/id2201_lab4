@@ -97,13 +97,9 @@ slave(Id, Master, Leader, Slaves, Group, N, Last) ->
             slave(Id, Master, Leader, Slaves, Group, N, Last);
         {msg, K, _Msg} when K > (N + 1) ->
             %missed message
-            % io:format("Node ~w Missed Message~n", [Id]),
-            %bcast(Id, {resync, self()}, [Leader | Slaves]),
             slave(Id, Master, Leader, Slaves, Group, N, Last);
         {view, K, _nodes, _group} when K > (N + 1) ->
             % missed message
-            % io:format("Node ~w missed message~n", [Id]),
-            %bcast(Id, {resync, self()}, [Leader | Slaves]),
             slave(Id, Master, Leader, Slaves, Group, N, Last);
         {msg, K, Msg} when K == (N + 1) ->
             Master ! Msg,
