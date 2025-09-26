@@ -6,7 +6,7 @@ bcast(Id, Msg, Slaves) ->
     lists:foreach(fun(Slave) -> Slave ! Msg, crash(Id) end, Slaves).
 
 crash(Id) ->
-    case random:uniform(42) of
+    case random:uniform(1000) of
         42 ->
             io:format("leader ~w: crash~n", [Id]),
             exit(no_luck);

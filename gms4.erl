@@ -4,7 +4,7 @@
 bcast(Id, Msg, Slaves) ->
     % io:format("Leader ~w Broadcasting: ~w ~n", [Id, Msg]),
     lists:foreach(fun(Slave) -> 
-        case miss_msg(0, Msg) of
+        case miss_msg(10, Msg) of
             Msg ->
                 Slave ! Msg, 
                 crash(Id);
@@ -39,10 +39,6 @@ miss_msg(Chance, Message) ->
 
 leader(Id, Master, Slaves, Group, N) ->
     receive
-        {'DOWN', _Ref, process, Node, _Reason} ->
-            Slaves2 = lists:delete(Node, Slaves),
-            bcast(Id, {view, N, [self()|Slaves2], Group}, Slaves2),
-            leader(Id, Master, Slaves2, Group, N+1);
         {mcast, Msg} ->
             bcast(Id, {msg, N, Msg}, Slaves),
             Master ! Msg,
@@ -101,9 +97,6 @@ slave(Id, Master, Leader, Slaves, Group, N, Last) ->
     receive
         {'DOWN', _Ref, process, Leader, _Reason} ->
             election(Id, Master, Slaves, Group, N, Last);
-        {'DOWN', _Ref, process, NotLeader, _Reason} ->
-            Slaves2 = lists:delete(NotLeader, Slaves),
-            slave(Id, Master, Leader, Slaves2, Group, N, Last);
         {mcast, Msg} ->
             Leader ! {mcast, Msg},
             slave(Id, Master, Leader, Slaves, Group, N, Last);
@@ -112,31 +105,31 @@ slave(Id, Master, Leader, Slaves, Group, N, Last) ->
             % io:format("Node ~w Forwarding Join Message~n", [Id]),
             Leader ! {join, Wrk, Peer},
             % let's assume its safe to add the new Node to our list
-            Slaves2 = lists:uniq(lists:append(Slaves, [Peer])),
-            Group2 = lists:uniq(lists:append(Group, [Wrk])),
+            % Slaves2 = lists:uniq(lists:append(Slaves, [Peer])),
+            % Group2 = lists:uniq(lists:append(Group, [Wrk])),
             erlang:monitor(process, Peer),
             % will this solve the errors? - no, it can be wildly out of sync during crash wave
             % Peer ! {view, N, [Leader | Slaves2], Group2},
-            slave(Id, Master, Leader, Slaves2, Group2, N, Last);
+            slave(Id, Master, Leader, Slaves, Group, N, Last);
         {msg, K, _Msg} when K > (N + 1) ->
             %missed message
             io:format("Node ~w requests resync!~n", [Id]),
-            bcast(Id, resync, Slaves),
+            bcast_safe(resync, Slaves),
             slave(Id, Master, Leader, Slaves, Group, N, Last);
         {view, K, _nodes, _group} when K > (N + 1) ->
             % missed message
             io:format("Node ~w requests resync!~n", [Id]),
-            bcast(Id, resync, Slaves),
+            bcast_safe(resync, Slaves),
             slave(Id, Master, Leader, Slaves, Group, N, Last);
         {msg, K, Msg} when K == (N + 1) ->
             Master ! Msg,
             % echo to group to avoid misses
-            bcast(Id, {msg, K, Msg}, Slaves),
+            bcast_safe({msg, K, Msg}, Slaves),
             slave(Id, Master, Leader, Slaves, Group, K, rotate_last({msg, K, Msg}, Last, 10));
         {view, K, [Leader|Slaves2], Group2} when K == (N + 1) ->
             Master ! {view, Group2},
             % echo to group to avoid misses
-            bcast(Id, {view, K, [Leader|Slaves2], Group2}, Slaves2),
+            bcast_safe({view, K, [Leader|Slaves2], Group2}, Slaves2),
             slave(Id, Master, Leader, Slaves2, Group2, K, rotate_last({view, K, [Leader|Slaves2], Group2}, Last, 10));
         {msg, K, _} when K =< N ->
             %io:format("Node ~w received old msg num: ~w~n", [Id, K]),
