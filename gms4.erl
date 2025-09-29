@@ -4,7 +4,7 @@
 bcast(Id, Msg, Slaves) ->
     % io:format("Leader ~w Broadcasting: ~w ~n", [Id, Msg]),
     lists:foreach(fun(Slave) -> 
-        case miss_msg(10, Msg) of
+        case miss_msg(50, Msg) of
             Msg ->
                 Slave ! Msg, 
                 crash(Id);
@@ -114,13 +114,13 @@ slave(Id, Master, Leader, Slaves, Group, N, Last) ->
             Master ! Msg,
             % echo to group to avoid misses
             bcast(Id, {msg, K, Msg}, Slaves),
-            slave(Id, Master, Leader, Slaves, Group, K, rotate_last({msg, K, Msg}, Last, 1));
+            slave(Id, Master, Leader, Slaves, Group, K, rotate_last({msg, K, Msg}, Last, 10));
         % view is idempotent
         {view, K, [Leader|Slaves2], Group2} when K > N ->
             Master ! {view, Group2},
             % echo to group to avoid misses
             bcast(Id, {view, K, [Leader|Slaves2], Group2}, Slaves2),
-            slave(Id, Master, Leader, Slaves2, Group2, K, rotate_last({view, K, [Leader|Slaves2], Group2}, Last, 1));
+            slave(Id, Master, Leader, Slaves2, Group2, K, rotate_last({view, K, [Leader|Slaves2], Group2}, Last, 10));
         {msg, K, _} when K =< N ->
             %io:format("Node ~w received old msg num: ~w~n", [Id, K]),
             slave(Id, Master, Leader, Slaves, Group, N, Last);
@@ -139,7 +139,6 @@ election(Id, Master, Slaves, [_|Group], N, Last) ->
         [Self|Rest] ->
             io:format("Node ~w now Leader~n", [Id]),
             lists:foreach(fun(Msg) -> bcast(Id, Msg, Rest) end, Last),
-            % bcast(Id, Last, Rest),
             bcast(Id, {view, N+1, Slaves, Group}, Rest),
             Master ! {view, Group},
             leader(Id, Master, Rest, Group, N+2);
@@ -155,7 +154,6 @@ start(Id) ->
     {ok, spawn_link(fun()-> init(Id, Self, Rnd) end)}.
 
 init(Id, Master, Rnd) ->
-    %io:format("rand val is ~w~n", [Rnd]),
     rand:seed(default, {Rnd, Rnd, Rnd}),
     leader_safe(Id, Master, [], [Master], 0).
 
@@ -166,20 +164,16 @@ start(Id, Grp) ->
     {ok, spawn_link(fun()-> init(Id, Grp, Self, Rnd) end)}.
 
 init(Id, Grp, Master, Rnd) ->
-    %io:format("rand val is ~w~n", [Rnd]),
     rand:seed(default, {Rnd, Rnd, Rnd}),
     Self = self(),
     lists:foreach(fun(Groupee) -> Groupee ! {join, Master, Self} end, Grp),
-    %Grp ! {join, Master, Self},
     receive
         {view, N, [Leader|Slaves], Group} ->
             Master ! {view, Group},
             erlang:monitor(process, Leader),
             io:format("Node ~w :: ~w starting with Leader :: ~w :: ~w~n", [Id, self(), Leader, Slaves]),
             init_loop(Id, Master, Leader, Slaves, Group, N, [], 0)
-            % slave(Id, Master, Leader, Slaves, Group, N, {})
     after 500 ->
-        % ok
         Master ! {error, "no reply from leader"}
     end.
 
@@ -191,22 +185,15 @@ init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref) ->
             exit("leader dead");
         % screen should be initialized here
         {msg, K, {state, Ref, Color}} ->
-            % io:format("Node ~w got gui init: ~w~n", [Id, K]),
             Master ! {state, Ref, Color},
             slave(Id, Master, Leader, Slaves, Group, K, Last);
         % we should receive our ref immediately from the worker
         {mcast, {state_request, Ref2}} when Ref == 0 ->
-            % io:format("Node ~w got new Ref~n", [Id]),
-            % Master ! {state_request, Ref2},
             Leader ! {mcast, {state_request, Ref2}},
             init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref2);
         {msg, K, {state_request, Ref}} ->
-            % io:format("Node ~w got state request echo: ~w~n", [Id, K]),
             Master ! {state_request, Ref},
             init_loop(Id, Master, Leader, Slaves, Group, K, Last, Ref)
-        % _Ignore ->
-        %     io:format("Node ~w ignoring request~n", [Id]),
-        %     init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref)
         after 500 ->
             io:format("Node ~w getting no reponse from leader, restarting~n", [Id]),
             exit(Master, "no response from leader"),

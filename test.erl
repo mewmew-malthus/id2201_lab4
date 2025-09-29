@@ -35,8 +35,8 @@ add_monitor(N, Module, Wrk, Sleep) ->
 ct_start(N, Module, Sleep) when N > 1 ->
     spawn(fun() -> continuous(N, Module, Sleep) end).
 
-ct_gms4(N, Sleep) ->
-    spawn(fun() -> continuous_grp(N, gms4, Sleep) end).
+ct_gms(N, Module, Sleep) ->
+    spawn(fun() -> continuous_grp(N, Module, Sleep) end).
 
 add_monitor_grp(N, Module, Grp, Sleep) ->
     Node = worker:start(N, Module, rand:uniform(256), Grp, Sleep),
