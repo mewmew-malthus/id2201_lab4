@@ -4,7 +4,7 @@
 bcast(Id, Msg, Slaves) ->
     % io:format("Leader ~w Broadcasting: ~w ~n", [Id, Msg]),
     lists:foreach(fun(Slave) -> 
-        case miss_msg(10, Msg) of
+        case miss_msg(0, Msg) of
             Msg ->
                 Slave ! Msg, 
                 crash(Id);
@@ -21,7 +21,7 @@ bcast_safe(Msg, Slaves) ->
     end, Slaves).
 
 crash(Id) ->
-    case rand:uniform(500) of
+    case rand:uniform(100) of
         42 ->
             io:format("Node ~w :: ~w crash~n", [Id, self()]),
             exit(no_luck);
@@ -79,7 +79,8 @@ leader_safe(Id, Master, Slaves, Group, N) ->
                     leader_safe(Id, Master, Slaves, Group, N)
             end;
         unsafe ->
-            leader(Id, Master, Slaves, Group, N);
+            bcast_safe({view, N, [self()|Slaves], Group}, Slaves),
+            leader(Id, Master, Slaves, Group, N+1);
         stop ->
             ok
     end.
@@ -90,7 +91,7 @@ rotate_last(NewMsg, Last, Length) ->
         false ->
             Last2;
         true ->
-            lists:sublist(Last2, 1, length(Last2) - 1)
+            lists:sublist(Last2, 2, length(Last2) - 1)
     end.
 
 slave(Id, Master, Leader, Slaves, Group, N, Last) ->
@@ -101,49 +102,35 @@ slave(Id, Master, Leader, Slaves, Group, N, Last) ->
             Leader ! {mcast, Msg},
             slave(Id, Master, Leader, Slaves, Group, N, Last);
         {join, Wrk, Peer} ->
-            % Peer ! {view, N, [Leader | lists:append(Slaves, [Peer])], lists:append(Group, [Wrk])},
-            % io:format("Node ~w Forwarding Join Message~n", [Id]),
             Leader ! {join, Wrk, Peer},
-            % let's assume its safe to add the new Node to our list
-            % Slaves2 = lists:uniq(lists:append(Slaves, [Peer])),
-            % Group2 = lists:uniq(lists:append(Group, [Wrk])),
             erlang:monitor(process, Peer),
-            % will this solve the errors? - no, it can be wildly out of sync during crash wave
-            % Peer ! {view, N, [Leader | Slaves2], Group2},
             slave(Id, Master, Leader, Slaves, Group, N, Last);
         {msg, K, _Msg} when K > (N + 1) ->
             %missed message
-            % io:format("Node ~w requests resync!~n", [Id]),
+            io:format("Node ~w requests resync: ~w~n", [Id, K]),
             bcast_safe(resync, Slaves),
             slave(Id, Master, Leader, Slaves, Group, N, Last);
-        % view is idempotent
-        % {view, K, _nodes, _group} when K > (N + 1) ->
-        %     % missed message
-        %     % io:format("Node ~w requests resync!~n", [Id]),
-        %     bcast_safe(resync, Slaves),
-        %     slave(Id, Master, Leader, Slaves, Group, N, Last);
         {msg, K, Msg} when K == (N + 1) ->
             Master ! Msg,
             % echo to group to avoid misses
-            bcast_safe({msg, K, Msg}, Slaves),
-            slave(Id, Master, Leader, Slaves, Group, K, rotate_last({msg, K, Msg}, Last, 10));
+            % bcast_safe({msg, K, Msg}, Slaves),
+            slave(Id, Master, Leader, Slaves, Group, K, rotate_last({msg, K, Msg}, Last, 1));
+        % view is idempotent
         {view, K, [Leader|Slaves2], Group2} when K > N ->
             Master ! {view, Group2},
             % echo to group to avoid misses
-            bcast_safe({view, K, [Leader|Slaves2], Group2}, Slaves2),
-            slave(Id, Master, Leader, Slaves2, Group2, K, rotate_last({view, K, [Leader|Slaves2], Group2}, Last, 10));
+            % bcast_safe({view, K, [Leader|Slaves2], Group2}, Slaves2),
+            slave(Id, Master, Leader, Slaves2, Group2, K, rotate_last({view, K, [Leader|Slaves2], Group2}, Last, 1));
         {msg, K, _} when K =< N ->
             %io:format("Node ~w received old msg num: ~w~n", [Id, K]),
             slave(Id, Master, Leader, Slaves, Group, N, Last);
         {view, K, _, _} when K =< N ->
             slave(Id, Master, Leader, Slaves, Group, N, Last);
         resync ->
-           lists:foreach(fun(Msg) -> bcast(Id, Msg, Slaves) end, Last), 
+           lists:foreach(fun(Msg) -> bcast_safe(Msg, Slaves) end, Last), 
            slave(Id, Master, Leader, Slaves, Group, N, Last);
         stop ->
             ok
-        % Badmessage ->
-            % io:format("Bad message received ~w~n", [Badmessage])
     end.
 
 election(Id, Master, Slaves, [_|Group], N, Last) ->
@@ -151,7 +138,8 @@ election(Id, Master, Slaves, [_|Group], N, Last) ->
     case Slaves of
         [Self|Rest] ->
             io:format("Node ~w now Leader~n", [Id]),
-            bcast(Id, Last, Rest),
+            lists:foreach(fun(Msg) -> bcast(Id, Msg, Rest) end, Last),
+            % bcast(Id, Last, Rest),
             bcast(Id, {view, N+1, Slaves, Group}, Rest),
             Master ! {view, Group},
             leader(Id, Master, Rest, Group, N+2);
@@ -203,7 +191,7 @@ init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref) ->
             exit("leader dead");
         % screen should be initialized here
         {msg, K, {state, Ref, Color}} ->
-            io:format("Node ~w got gui init~n", [Id]),
+            io:format("Node ~w got gui init: ~w~n", [Id, K]),
             Master ! {state, Ref, Color},
             slave(Id, Master, Leader, Slaves, Group, K, Last);
         % we should receive our ref immediately from the worker
@@ -213,7 +201,7 @@ init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref) ->
             Leader ! {mcast, {state_request, Ref2}},
             init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref2);
         {msg, K, {state_request, Ref}} ->
-            io:format("Node ~w got state request echo~n", [Id]),
+            io:format("Node ~w got state request echo: ~w~n", [Id, K]),
             Master ! {state_request, Ref},
             init_loop(Id, Master, Leader, Slaves, Group, K, Last, Ref)
         % _Ignore ->
