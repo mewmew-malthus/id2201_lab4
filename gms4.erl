@@ -21,7 +21,7 @@ bcast_safe(Msg, Slaves) ->
     end, Slaves).
 
 crash(Id) ->
-    case rand:uniform(1000) of
+    case rand:uniform(500) of
         42 ->
             io:format("Node ~w :: ~w crash~n", [Id, self()]),
             exit(no_luck);
@@ -113,12 +113,12 @@ slave(Id, Master, Leader, Slaves, Group, N, Last) ->
             slave(Id, Master, Leader, Slaves, Group, N, Last);
         {msg, K, _Msg} when K > (N + 1) ->
             %missed message
-            io:format("Node ~w requests resync!~n", [Id]),
+            % io:format("Node ~w requests resync!~n", [Id]),
             bcast_safe(resync, Slaves),
             slave(Id, Master, Leader, Slaves, Group, N, Last);
         {view, K, _nodes, _group} when K > (N + 1) ->
             % missed message
-            io:format("Node ~w requests resync!~n", [Id]),
+            % io:format("Node ~w requests resync!~n", [Id]),
             bcast_safe(resync, Slaves),
             slave(Id, Master, Leader, Slaves, Group, N, Last);
         {msg, K, Msg} when K == (N + 1) ->
@@ -198,7 +198,7 @@ init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref) ->
     receive
         % leader dead
         {'DOWN', _Ref, process, Leader, _Reason} ->
-            init_election(Id, Master, Slaves, Group, N, Last, Ref);
+            exit("leader dead");
         % screen should be initialized here
         {msg, K, {state, Ref, Color}} ->
             io:format("Node ~w got gui init~n", [Id]),
@@ -213,26 +213,23 @@ init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref) ->
         {msg, K, {state_request, Ref}} when K > N ->
             io:format("Node ~w got state request echo~n", [Id]),
             Master ! {state_request, Ref},
-            init_loop(Id, Master, Leader, Slaves, Group, K, Last, Ref);
-        {join, Wrk, Peer} ->
-            % io:format("Node ~w Forwarding Join Message~n", [Id]),
-            Leader ! {join, Wrk, Peer},
-            init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref);
-        {view, K, [Leader | Slaves2], Group2} when K > N ->
-            init_loop(Id, Master, Leader, Slaves2, Group2, K, Last, Ref);
-        {view, K, _, _} when K =< N ->
-            init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref)
+            init_loop(Id, Master, Leader, Slaves, Group, K, Last, Ref)
+        % _Ignore ->
+        %     io:format("Node ~w ignoring request~n", [Id]),
+        %     init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref)
+        after 500 ->
+            io:format("Node ~w getting no reponse from leader, restarting~n", [Id])
     end.
-
-init_election(Id, Master, Slaves, Group, N, Last, Ref) ->
-    io:format("Node ~w init election!!~n", [Id]),
-    Self = self(),
-    case Slaves of
-        [Self, Slaves] ->
-            %oh god i'm in charge now - no need to rebroadcast, no one else has initialized
-            leader(Id, Master, Slaves, Group, N);
-        [Leader|Rest] ->
-            % ask new leader for state
-            Leader ! {mcast, {state_request, Ref}},
-            init_loop(Id, Master, Leader, Rest, Group, N, Last, Ref)
-    end.
+% don't think this is needed but would rather comment than do git magic
+% init_election(Id, Master, Slaves, Group, N, Last, Ref) ->
+%     io:format("Node ~w init election!!~n", [Id]),
+%     Self = self(),
+%     case Slaves of
+%         [Self, Slaves] ->
+%             %oh god i'm in charge now - no need to rebroadcast, no one else has initialized
+%             leader(Id, Master, Slaves, Group, N);
+%         [Leader|Rest] ->
+%             % ask new leader for state
+%             Leader ! {mcast, {state_request, Ref}},
+%             init_loop(Id, Master, Leader, Rest, Group, N, Last, Ref)
+%     end.

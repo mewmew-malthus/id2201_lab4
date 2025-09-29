@@ -133,11 +133,11 @@ worker(Id, Cast, Color, Gui, Sleep) ->
 		Cast ! unsafe,
 		worker(Id, Cast, Color, Gui, Sleep);
 	% viv added
-	{error, Error} ->
-		io:format("Error in Worker ~w:~n~w~n", [Id, Error]);
+	% {error, Error} ->
+		% io:format("Error in Worker ~w:~n~w~n", [Id, Error]);
 
-	Error ->
-    	    io:format("worker strange message: ~w~n", [Error]),
+	_Error ->
+    	    % io:format("worker strange message: ~w~n", [Error]),
 	    worker(Id, Cast, Color, Gui, Sleep)
 
     after Wait ->
