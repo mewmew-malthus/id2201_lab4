@@ -116,17 +116,18 @@ slave(Id, Master, Leader, Slaves, Group, N, Last) ->
             % io:format("Node ~w requests resync!~n", [Id]),
             bcast_safe(resync, Slaves),
             slave(Id, Master, Leader, Slaves, Group, N, Last);
-        {view, K, _nodes, _group} when K > (N + 1) ->
-            % missed message
-            % io:format("Node ~w requests resync!~n", [Id]),
-            bcast_safe(resync, Slaves),
-            slave(Id, Master, Leader, Slaves, Group, N, Last);
+        % view is idempotent
+        % {view, K, _nodes, _group} when K > (N + 1) ->
+        %     % missed message
+        %     % io:format("Node ~w requests resync!~n", [Id]),
+        %     bcast_safe(resync, Slaves),
+        %     slave(Id, Master, Leader, Slaves, Group, N, Last);
         {msg, K, Msg} when K == (N + 1) ->
             Master ! Msg,
             % echo to group to avoid misses
             bcast_safe({msg, K, Msg}, Slaves),
             slave(Id, Master, Leader, Slaves, Group, K, rotate_last({msg, K, Msg}, Last, 10));
-        {view, K, [Leader|Slaves2], Group2} when K == (N + 1) ->
+        {view, K, [Leader|Slaves2], Group2} when K > N ->
             Master ! {view, Group2},
             % echo to group to avoid misses
             bcast_safe({view, K, [Leader|Slaves2], Group2}, Slaves2),
@@ -211,7 +212,7 @@ init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref) ->
             % Master ! {state_request, Ref2},
             Leader ! {mcast, {state_request, Ref2}},
             init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref2);
-        {msg, K, {state_request, Ref}} when K > N ->
+        {msg, K, {state_request, Ref}} ->
             io:format("Node ~w got state request echo~n", [Id]),
             Master ! {state_request, Ref},
             init_loop(Id, Master, Leader, Slaves, Group, K, Last, Ref)
