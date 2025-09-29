@@ -6,6 +6,8 @@ First, I notice that in section 3 the document says we do not need to report whe
 Ok, so it was intentionally misleading. Multicast recovery is not supposed to work. Why?
 The election requires that all workers have the same view, and that the view is accurate. The most likely way this fails is a worker crashes, then when the election happens, the crashed leader is elected. Of course, that case is not exposed in our lab. Really, the color is dependent on all of the previous messages, and some panels do not receive messages during a crash.
 
+The worker startup process is very fragile. There is also a case where the Node can receive the state message without receiving the previous state_request_echo message, which causes the worker to freeze forever
+
 
 Things to handle:
 1. Lost Messages

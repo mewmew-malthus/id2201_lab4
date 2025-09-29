@@ -198,6 +198,7 @@ init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref) ->
     receive
         % leader dead
         {'DOWN', _Ref, process, Leader, _Reason} ->
+            exit(Master, "leader dead"),
             exit("leader dead");
         % screen should be initialized here
         {msg, K, {state, Ref, Color}} ->
@@ -218,7 +219,9 @@ init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref) ->
         %     io:format("Node ~w ignoring request~n", [Id]),
         %     init_loop(Id, Master, Leader, Slaves, Group, N, Last, Ref)
         after 500 ->
-            io:format("Node ~w getting no reponse from leader, restarting~n", [Id])
+            io:format("Node ~w getting no reponse from leader, restarting~n", [Id]),
+            exit(Master, "no response from leader"),
+            exit("no response from leader")
     end.
 % don't think this is needed but would rather comment than do git magic
 % init_election(Id, Master, Slaves, Group, N, Last, Ref) ->

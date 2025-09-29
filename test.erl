@@ -52,7 +52,7 @@ continuous_grp(N, Module, Sleep) when N > 1 ->
         Node = add_monitor_grp(Id, Module, maps:keys(Accin), Sleep),
         maps:put(Node, Id, Accin)
      end, Refs0, Ns),
-    timer:sleep(1000),
+    timer:sleep(3000),
     Wrk ! unsafe,
     continue_loop_grp(Refs, Module, Sleep).
 
